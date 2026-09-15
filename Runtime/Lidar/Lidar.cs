@@ -21,7 +21,7 @@ using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering.HighDefinition;
 using UnityEngine.Rendering;
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_5 || UNITY_6000_5_OR_NEWER
 using ColliderId = UnityEngine.EntityId;
 #else
 using ColliderId = System.Int32;
@@ -34,7 +34,7 @@ namespace Marus.Sensors
     /// Supports distance/incidence-based intensity, atmospheric (fog/rain) attenuation,
     /// and decoupled point-cloud visualization via IPointCloudSensor.
     /// </summary>
-    public class RaycastLidar : SensorBase, IPointCloudSensor
+    public class Lidar : SensorBase, IPointCloudSensor
     {
         [Header("Sensor Resolution & Field of View")]
         public int WidthRes = 1024;
@@ -106,7 +106,7 @@ namespace Marus.Sensors
                     Collider instId = obj.GetComponent<Collider>();
                     if (instId)
                     {
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_5 || UNITY_6000_5_OR_NEWER
                         colliderLayer[instId.GetEntityId()] = instId.gameObject.layer;
 #else
                         colliderLayer[instId.GetInstanceID()] = instId.gameObject.layer;
@@ -203,26 +203,33 @@ namespace Marus.Sensors
 
             float totalKeepProb = fogKeepProb * rainKeepProb;
 
-            // Single O(N) pass over all points for fast weather filtering
-            for (int i = 0; i < points.Length; i++)
+            // Single O(N) pass over all points for frame time and weather filtering
+            if (totalKeepProb < 1.0f)
             {
-                var reading = readings[i];
-
-                reading.Time = frameTime;
-
-                // Probability check for weather dropouts
-                if (totalKeepProb < 1.0f && UnityEngine.Random.value > totalKeepProb)
+                for (int i = 0; i < points.Length; i++)
                 {
-                    reading.IsValid = false;
-                    points[i] = Vector3.zero;
+                    var reading = readings[i];
+                    reading.Time = frameTime;
+                    if (UnityEngine.Random.value > totalKeepProb)
+                    {
+                        reading.IsValid = false;
+                        points[i] = Vector3.zero;
+                    }
+                    readings[i] = reading;
                 }
-
-                readings[i] = reading;
+            }
+            else
+            {
+                for (int i = 0; i < readings.Length; i++)
+                {
+                    var reading = readings[i];
+                    reading.Time = frameTime;
+                    readings[i] = reading;
+                }
             }
 
-            // Direct copy to internal buffers
-            points.CopyTo(this.Points);
-            readings.CopyTo(this.Readings);
+            // Atomically swap front/back buffers without memory copying
+            _raycastHelper.SwapBuffers(ref this.Points, ref this.Readings);
 
             hasData = true;
         }
@@ -231,7 +238,7 @@ namespace Marus.Sensors
         {
             var reading = new LidarReading();
 
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_5 || UNITY_6000_5_OR_NEWER
             var colId = hit.colliderEntityId;
             if (_cachedAnnotations != null && _cachedAnnotations.TryGetValue(colId, out var value))
             {

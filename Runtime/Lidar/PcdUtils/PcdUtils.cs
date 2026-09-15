@@ -20,6 +20,7 @@ using System;
 using System.Buffers;
 using System.Linq;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Marus.Sensors;
 using Marus.Core;
 
@@ -113,37 +114,54 @@ namespace Marus.Utils
             }
         }
 
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct PcdPointIntensity
+        {
+            public float x;
+            public float z;
+            public float y;
+            public ushort intensity;
+        }
+
         /// <summary>
         /// Write pointcloud with intensity field
         /// </summary>
         /// <param name="filePath"></param>
         /// <param name="pointcloud"></param>
         /// <param name="lidarReadings"></param>
-        public static void WriteToPcdFileWithIntensity(string filePath, List<Vector3> pointcloud, List<LidarReading> lidarReadings)
+        public static void WriteToPcdFileWithIntensity(string filePath, IList<Vector3> pointcloud, IList<LidarReading> lidarReadings)
         {
+            int pointCount = pointcloud.Count;
             string metadata = "VERSION .7\n" +
                 "FIELDS x y z intensity\n" +
                 "SIZE 4 4 4 2\n" +
                 "TYPE F F F U\n" +
                 "COUNT 1 1 1 1\n" +
-                "WIDTH " + pointcloud.Count.ToString() + "\n" +
+                "WIDTH " + pointCount.ToString() + "\n" +
                 "HEIGHT 1\n" +
                 "VIEWPOINT 0 0 0 1 0 0 0\n" +
-                "POINTS " + pointcloud.Count.ToString() + "\n" +
+                "POINTS " + pointCount.ToString() + "\n" +
                 "DATA binary\n";
 
-            var pointSize = 14;
+            const int pointSize = 14;
             File.WriteAllText(filePath, metadata);
             using (var fileStream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.None))
             using (var bw = new BinaryWriter(fileStream))
             {
-                byte[] bytes = new byte[pointcloud.Count * pointSize];
-                for(int i = 0; i < pointcloud.Count; i++)
+                byte[] bytes = new byte[pointCount * pointSize];
+                unsafe
                 {
-                    Buffer.BlockCopy( BitConverter.GetBytes( pointcloud[i].x ), 0, bytes, i*pointSize, 4 );
-                    Buffer.BlockCopy( BitConverter.GetBytes( pointcloud[i].z ), 0, bytes, i*pointSize + 4, 4 );
-                    Buffer.BlockCopy( BitConverter.GetBytes( pointcloud[i].y ), 0, bytes, i*pointSize + 8, 4 );
-                    Buffer.BlockCopy( BitConverter.GetBytes( lidarReadings[i].Intensity ), 0, bytes, i*pointSize + 12, 2 );
+                    fixed (byte* pBytes = bytes)
+                    {
+                        var pDest = (PcdPointIntensity*)pBytes;
+                        for (int i = 0; i < pointCount; i++)
+                        {
+                            pDest[i].x = pointcloud[i].x;
+                            pDest[i].z = pointcloud[i].z;
+                            pDest[i].y = pointcloud[i].y;
+                            pDest[i].intensity = lidarReadings[i].Intensity;
+                        }
+                    }
                 }
                 bw.Write(bytes);
             }

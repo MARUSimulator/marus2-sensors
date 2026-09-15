@@ -26,7 +26,7 @@ using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.UI;
 using Marus.CustomInspector;
-#if UNITY_6000_5_OR_NEWER
+#if UNITY_6000_5 || UNITY_6000_5_OR_NEWER
 using ColliderId = UnityEngine.EntityId;
 #else
 using ColliderId = System.Int32;
@@ -167,6 +167,16 @@ namespace Marus.Sensors
         // Decoupled Annotation fields
         private MonoBehaviour _saver;
         private bool saverExists;
+        private Dictionary<ColliderId, (int, int)> _cachedAnnotations;
+
+        private struct CartesianPolarMapping
+        {
+            public int xCoordinate;
+            public int yCoordinate;
+            public bool inRange;
+        }
+
+        private CartesianPolarMapping[] _cartesianToPolarMap;
 
         void Start()
         {
@@ -178,9 +188,17 @@ namespace Marus.Sensors
 
             int totalRays = WidthRes * HeightRes * NumRaysPerAccusticRay;
 
-            // Decoupled instantiation via reflection
+            // Decoupled instantiation via reflection - cached ONCE at startup
             _saver = GetComponent("SonarObjectDetectionSaver") as MonoBehaviour;
             saverExists = _saver is not null && _saver.isActiveAndEnabled == true;
+            if (saverExists)
+            {
+                var field = _saver.GetType().GetField("objectClassesAndInstances");
+                if (field != null)
+                {
+                    _cachedAnnotations = field.GetValue(_saver) as Dictionary<ColliderId, (int, int)>;
+                }
+            }
 
             sonarImage = new Texture2D(WidthRes, imageHeight, TextureFormat.RGB24, false);
             ClassInstancePolarImage = new Texture2D(WidthRes, imageHeight, TextureFormat.RGB24, false);
@@ -190,6 +208,7 @@ namespace Marus.Sensors
             sonarData = new NativeArray<SonarReading>(totalRays, Allocator.Persistent);
 
             InitializeRayArray();
+            InitCartesianProjectionLUT();
 
             _raycastHelper = new RaycastJobHelper<SonarReading>(gameObject, directionsLocal, OnSonarHit, OnFinish, MaxDistance);
             _raycastHelper.SampleFrequency = SampleFrequency;
@@ -204,10 +223,10 @@ namespace Marus.Sensors
 
         private void OnFinish(NativeArray<Vector3> points, NativeArray<SonarReading> sonarReadings)
         {
-            sonarReadings.CopyTo(sonarData);
+            _raycastHelper.SwapResults(ref sonarData);
 
-            ComposePolarImage(sonarReadings);
-            ComposeCartesianImage(sonarReadings);
+            ComposePolarImage(sonarData);
+            ComposeCartesianImage(sonarData);
 
             hasData = true;
         }
@@ -304,27 +323,22 @@ namespace Marus.Sensors
             var sonarReading = new SonarReading();
             float intensity = 0;
 
-            // Decoupled Annotation lookup via reflection
-            if (saverExists)
+            // Decoupled Annotation lookup from cached dictionary
+            if (_cachedAnnotations != null)
             {
-                var field = _saver.GetType().GetField("objectClassesAndInstances");
-                if (field != null)
+#if UNITY_6000_5 || UNITY_6000_5_OR_NEWER
+                if (_cachedAnnotations.TryGetValue(hit.colliderEntityId, out var value))
                 {
-                    var dict = field.GetValue(_saver) as Dictionary<ColliderId, (int, int)>;
-#if UNITY_6000_5_OR_NEWER
-                    if (dict != null && dict.TryGetValue(hit.colliderEntityId, out var value))
-                    {
-                        sonarReading.ClassId = value.Item1;
-                        sonarReading.InstanceId = value.Item2;
-                    }
-#else
-                    if (dict != null && dict.TryGetValue(hit.colliderInstanceID, out var value))
-                    {
-                        sonarReading.ClassId = value.Item1;
-                        sonarReading.InstanceId = value.Item2;
-                    }
-#endif
+                    sonarReading.ClassId = value.Item1;
+                    sonarReading.InstanceId = value.Item2;
                 }
+#else
+                if (_cachedAnnotations.TryGetValue(hit.colliderInstanceID, out var value))
+                {
+                    sonarReading.ClassId = value.Item1;
+                    sonarReading.InstanceId = value.Item2;
+                }
+#endif
             }
 
             //in case of out of range rays add only thermal and speckle noise
@@ -449,6 +463,63 @@ namespace Marus.Sensors
 
         }
 
+        private void InitCartesianProjectionLUT()
+        {
+            int totalPixels = CartesianXRes * CartesianYRes;
+            if (_cartesianToPolarMap == null || _cartesianToPolarMap.Length != totalPixels)
+            {
+                _cartesianToPolarMap = new CartesianPolarMapping[totalPixels];
+            }
+
+            int halfX = CartesianXRes / 2;
+            float hfovOverTwo = HorizontalFieldOfView / 2f;
+            float rangeDiff = MaxDistance - MinDistance;
+
+            // populate left side of the swath
+            for (var x = halfX; x > 0; x--)
+            {
+                for (var y = 0; y < CartesianYRes; y++)
+                {
+                    int destIndex = (halfX - x) + y * CartesianXRes;
+                    double thetha = (180.0 / Math.PI) * Math.Atan2(x, y);
+                    double r = (Math.Sqrt(x * x + y * y) / CartesianYRes) * rangeDiff;
+
+                    if (thetha <= hfovOverTwo && r <= MaxDistance && r >= MinDistance)
+                    {
+                        _cartesianToPolarMap[destIndex].inRange = true;
+                        _cartesianToPolarMap[destIndex].xCoordinate = (int)Math.Round(((hfovOverTwo - thetha) / HorizontalFieldOfView) * WidthRes);
+                        _cartesianToPolarMap[destIndex].yCoordinate = (int)Math.Round((r / rangeDiff) * imageHeight);
+                    }
+                    else
+                    {
+                        _cartesianToPolarMap[destIndex].inRange = false;
+                    }
+                }
+            }
+
+            // populate right side of the swath
+            for (var x = 0; x < halfX; x++)
+            {
+                for (var y = 0; y < CartesianYRes; y++)
+                {
+                    int destIndex = (x + halfX) + y * CartesianXRes;
+                    double thetha = (180.0 / Math.PI) * Math.Atan2(x, y);
+                    double r = (Math.Sqrt(x * x + y * y) / CartesianYRes) * rangeDiff;
+
+                    if (thetha <= hfovOverTwo && r <= MaxDistance && r >= MinDistance)
+                    {
+                        _cartesianToPolarMap[destIndex].inRange = true;
+                        _cartesianToPolarMap[destIndex].xCoordinate = (int)Math.Round(((thetha + hfovOverTwo) / HorizontalFieldOfView) * WidthRes);
+                        _cartesianToPolarMap[destIndex].yCoordinate = (int)Math.Round((r / rangeDiff) * imageHeight);
+                    }
+                    else
+                    {
+                        _cartesianToPolarMap[destIndex].inRange = false;
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Creates a cartesian sonar image - 2D projection with bearing in cartesian coordinates on X axis and range on Y axis.
         /// Beamformed based on the angle distribution, removes object distortion.
@@ -456,62 +527,25 @@ namespace Marus.Sensors
         /// </summary>
         private void ComposeCartesianImage(NativeArray<SonarReading> readings)
         {
-            Color pixel;
-            Color annPixel;
-            int xCoordinate, yCoordinate;
-
-            //populate left side of the swath
-            for (var x = CartesianXRes / 2; x > 0; x--)
+            if (_cartesianToPolarMap == null || _cartesianToPolarMap.Length != CartesianXRes * CartesianYRes)
             {
-                for (var y = 0; y < CartesianYRes; y++)
-                {
-                    thetha = (180 / Math.PI) * Math.Atan2(x, y);
-                    r = Math.Sqrt(x * x + y * y);
-                    r = r / (float)CartesianYRes * (MaxDistance - MinDistance);
-
-                    if (thetha <= (HorizontalFieldOfView / 2) && r <= MaxDistance && r >= MinDistance)
-                    {
-                        xCoordinate = (int)Math.Round(((HorizontalFieldOfView / 2) - thetha) / HorizontalFieldOfView * WidthRes);
-                        yCoordinate = (int)Math.Round(r / (MaxDistance - MinDistance) * imageHeight);
-                        pixel = sonarImage.GetPixel(xCoordinate, yCoordinate);
-                        annPixel = ClassInstancePolarImage.GetPixel(xCoordinate, yCoordinate);
-
-                        if (AddNoise)
-                        {
-                            pixel.r = AddGaussianNoise(pixel.r);
-                            pixel.r = AddSpeckleNoise(pixel.r);
-                            pixel.g = pixel.r;
-                            pixel.b = pixel.r;
-                        }
-
-                        sonarCartesianImage.SetPixel(CartesianXRes / 2 - x, y, pixel);
-                        ClassInstanceImage.SetPixel(CartesianXRes / 2 - x, y, annPixel);
-                    }
-                    else
-                    {
-                        pixel = new Color(0, 0, 0, 1);
-                        sonarCartesianImage.SetPixel(CartesianXRes / 2 - x, y, pixel);
-                        ClassInstanceImage.SetPixel(CartesianXRes / 2 - x, y, pixel);
-                    }
-                }
-
+                InitCartesianProjectionLUT();
             }
 
-            //populate right side of the swath
-            for (var x = 0; x < CartesianXRes / 2; x++)
-            {
-                for (var y = 0; y < CartesianYRes; y++)
-                {
-                    thetha = (180 / Math.PI) * Math.Atan2(x, y);
-                    r = Math.Sqrt(x * x + y * y);
-                    r = r / CartesianYRes * (MaxDistance - MinDistance);
+            Color blackPixel = new Color(0, 0, 0, 1);
 
-                    if (thetha <= (HorizontalFieldOfView / 2) && r <= MaxDistance && r >= MinDistance)
+            for (int y = 0; y < CartesianYRes; y++)
+            {
+                int rowOffset = y * CartesianXRes;
+                for (int x = 0; x < CartesianXRes; x++)
+                {
+                    int idx = rowOffset + x;
+                    var map = _cartesianToPolarMap[idx];
+                    if (map.inRange)
                     {
-                        xCoordinate = (int)Math.Round((thetha + (HorizontalFieldOfView / 2)) / HorizontalFieldOfView * WidthRes);
-                        yCoordinate = (int)Math.Round(r / (MaxDistance - MinDistance) * imageHeight);
-                        pixel = sonarImage.GetPixel(xCoordinate, yCoordinate);
-                        annPixel = ClassInstancePolarImage.GetPixel(xCoordinate, yCoordinate);
+                        Color pixel = sonarImage.GetPixel(map.xCoordinate, map.yCoordinate);
+                        Color annPixel = ClassInstancePolarImage.GetPixel(map.xCoordinate, map.yCoordinate);
+
                         if (AddNoise)
                         {
                             pixel.r = AddGaussianNoise(pixel.r);
@@ -519,14 +553,14 @@ namespace Marus.Sensors
                             pixel.g = pixel.r;
                             pixel.b = pixel.r;
                         }
-                        sonarCartesianImage.SetPixel(x + CartesianXRes / 2, y, pixel);
-                        ClassInstanceImage.SetPixel(x +CartesianXRes / 2, y, annPixel);
+
+                        sonarCartesianImage.SetPixel(x, y, pixel);
+                        ClassInstanceImage.SetPixel(x, y, annPixel);
                     }
                     else
                     {
-                        pixel = new Color(0, 0, 0, 1);
-                        sonarCartesianImage.SetPixel(x + CartesianXRes / 2, y, pixel);
-                        ClassInstanceImage.SetPixel(x + CartesianXRes / 2, y, pixel);
+                        sonarCartesianImage.SetPixel(x, y, blackPixel);
+                        ClassInstanceImage.SetPixel(x, y, blackPixel);
                     }
                 }
             }

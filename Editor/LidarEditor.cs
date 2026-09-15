@@ -24,17 +24,17 @@ using System.Linq;
 namespace Marus.Sensors
 {
     /// <summary>
-    /// Custom editor for RaycastLidar component.
+    /// Custom editor for Lidar component.
     /// Enables lidar configuration loading, saving and modifying.
     /// </summary>
-    [CustomEditor(typeof(RaycastLidar))]
-    public class RaycastLidarEditor : Editor
+    [CustomEditor(typeof(Lidar))]
+    public class LidarEditor : Editor
     {
         List<LidarConfig> Configs = null;
         string[] _choices;
         int _confingIndex = 0;
         int _oldConfigIndex = 0;
-        RaycastLidar lidarObj;
+        Lidar lidarObj;
         bool showConfig = false;
         string _configName;
 
@@ -69,7 +69,7 @@ namespace Marus.Sensors
                 _configsChanged = false;
             }
 
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             _oldConfigIndex = lidarObj.ConfigIndex;
             var label = new GUIContent("Lidar Configuration");
             lidarObj.Configs = Configs;
@@ -158,7 +158,7 @@ namespace Marus.Sensors
         {
             var jsonText = File.ReadAllText(JsonConfigPath());
             Configs = JsonConvert.DeserializeObject<List<LidarConfig>>(jsonText);
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             lidarObj.Configs = Configs;
             _choices = new string[Configs.Count];
             var i = 0;
@@ -171,7 +171,7 @@ namespace Marus.Sensors
 
         public void RefreshLidar()
         {
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             lidarObj.Configs = Configs;
             Undo.RegisterCompleteObjectUndo(lidarObj.gameObject, "refresh lidar");
             serializedObject.Update();
@@ -182,7 +182,7 @@ namespace Marus.Sensors
 
         public void CheckIntervals()
         {
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             var list = lidarObj._rayIntervals;
             if (list.Count == 0) return;
             lidarObj.HeightRes = lidarObj._rayIntervals.Sum(x => x.NumberOfRays);
@@ -234,7 +234,7 @@ namespace Marus.Sensors
                 return false;
             }
 
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             var jsonTextFile = File.ReadAllText(JsonConfigPath());
 
             var index = Configs.FindIndex(a => a.Name == newName);
@@ -297,7 +297,7 @@ namespace Marus.Sensors
         /// <returns></returns>
         public bool RemoveConfig(string configName)
         {
-            lidarObj = target as RaycastLidar;
+            lidarObj = target as Lidar;
             if ((configName == "Custom" || configName == "Uniform"))
             {
                 _errorMsg = $"Cannot delete {configName}!";

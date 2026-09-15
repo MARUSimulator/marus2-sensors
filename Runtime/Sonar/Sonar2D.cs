@@ -81,6 +81,7 @@ namespace Marus.Sensors
         private void OnFinish(NativeArray<Vector3> points, NativeArray<SonarReading> reading)
         {
             points.CopyTo(pointsCopy);
+            _raycastHelper.SwapPoints(ref pointsCopy);
             hasData = true;
         }
 
