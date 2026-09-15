@@ -31,10 +31,6 @@ namespace Marus.Sensors
         /// 2) RaycastCommand execution
         /// 3) RaycastHit data interpretation - extract points, distances etc.
 
-        /// <summary>
-        /// Material set for point cloud display
-        /// </summary>
-        public Material ParticleMaterial;
 
         public int Resolution = 31;
 
@@ -43,7 +39,6 @@ namespace Marus.Sensors
         public float FieldOfView = 30;
         public float RayIntensity = 30;
 
-        public ComputeShader pointCloudShader;
         public NativeArray<Vector3> pointsCopy;
 
         const float PIOVERTWO = Mathf.PI / 2;
@@ -51,7 +46,7 @@ namespace Marus.Sensors
         const float WATER_LEVEL = 0;
 
         // Interface events
-        public event Action<GameObject, string, int, Material, ComputeShader> OnPointCloudInitialized;
+        public event Action<GameObject, string, int> OnPointCloudInitialized;
         public event Action<NativeArray<Vector3>> OnPointCloudUpdated;
 
         RaycastJobHelper<SonarReading> _raycastHelper;
@@ -67,7 +62,7 @@ namespace Marus.Sensors
             _raycastHelper = new RaycastJobHelper<SonarReading>(gameObject, directionsLocal, OnSonarHit, OnFinish);
 
             // Invoke event instead of hardcoding PointCloudManager
-            OnPointCloudInitialized?.Invoke(gameObject, name + "_PointCloud", totalRays, ParticleMaterial, pointCloudShader);
+            OnPointCloudInitialized?.Invoke(gameObject, name + "_PointCloud", totalRays);
 
             _coroutine = StartCoroutine(_raycastHelper.RaycastInLoop());
         }

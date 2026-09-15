@@ -44,9 +44,6 @@ namespace Marus.Sensors
         public float VerticalFieldOfView = 30f;
         public float HorizontalFieldOfView = 360f;
 
-        [Header("Visualization Assets")]
-        public ComputeShader pointCloudShader;
-        public Material ParticleMaterial;
 
         [Header("Weather Simulation (Default: Inactive)")]
         [Tooltip("Enable fog attenuation and point dropouts.")]
@@ -90,7 +87,7 @@ namespace Marus.Sensors
         private Coroutine _coroutine;
 
         // Interface events replacing PointCloudManager
-        public event Action<GameObject, string, int, Material, ComputeShader> OnPointCloudInitialized;
+        public event Action<GameObject, string, int> OnPointCloudInitialized;
         public event Action<NativeArray<Vector3>> OnPointCloudUpdated;
 
         private void Start()
@@ -142,7 +139,7 @@ namespace Marus.Sensors
             );
 
             // Interface-driven visualization initialization
-            OnPointCloudInitialized?.Invoke(gameObject, name + "_PointCloud", totalRays, ParticleMaterial, pointCloudShader);
+            OnPointCloudInitialized?.Invoke(gameObject, name + "_PointCloud", totalRays);
 
             //Extract fog attenuation distance from the Volume Profile
             if (enableFogSimulation && fogVolume != null && fogVolume.profile != null)
