@@ -17,7 +17,6 @@ using Marus.Networking;
 using Marus.NoiseDistributions;
 using Std;
 using UnityEngine;
-using Marus.Core;
 
 namespace Marus.Sensors.Primitive
 {
@@ -44,9 +43,22 @@ namespace Marus.Sensors.Primitive
             pos.y += Noise.Sample(measurementNoise);
             pos.z += Noise.Sample(measurementNoise);
 
-            var world = TfHandler.Instance.OriginGeoFrame;
-            point = world.Unity2Geo(pos);
-            origin = world.origin;
+            if (GeoOrigin.HasInstance)
+            {
+                point = GeoOrigin.Instance.Unity2Geo(pos);
+                origin = GeoOrigin.Instance.Origin;
+            }
+            else if (TfHandler.Instance != null && TfHandler.Instance.OriginGeoFrame != null)
+            {
+                var world = TfHandler.Instance.OriginGeoFrame;
+                point = world.Unity2Geo(pos);
+                origin = world.origin;
+            }
+            else
+            {
+                point = new GeoPoint(0.0, 0.0, pos.y);
+                origin = new GeoPoint(0.0, 0.0, 0.0);
+            }
 
             Log(new { point.latitude, point.longitude, point.altitude });
             hasData = true;
