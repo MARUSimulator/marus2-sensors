@@ -322,6 +322,18 @@ namespace Marus.Sensors
 
         public void InitializeRayArray()
         {
+            // Guard: Configs may be null if the scene was opened/the component was added
+            // without going through the custom Inspector (which loads the JSON). In that case,
+            // fall back to Uniform mode using the individual WidthRes/HeightRes/FOV fields
+            // that are always serialized on the component directly.
+            if (Configs == null || Configs.Count == 0 || ConfigIndex < 0 || ConfigIndex >= Configs.Count)
+            {
+                Debug.LogWarning($"[Lidar] Configs list is null or out of range (Configs={(Configs?.Count ?? -1)}, ConfigIndex={ConfigIndex}). " +
+                    $"Falling back to Uniform mode with WidthRes={WidthRes}, HeightRes={HeightRes}.");
+                _rayAngles = RaycastJobHelper.InitUniformRays(WidthRes, HeightRes, HorizontalFieldOfView, VerticalFieldOfView);
+                return;
+            }
+
             var cfg = Configs[ConfigIndex];
             if (cfg.Type == RayDefinitionType.Intervals)
             {
