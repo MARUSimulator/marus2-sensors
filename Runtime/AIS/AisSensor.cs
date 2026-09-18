@@ -56,11 +56,9 @@ namespace Marus.Sensors.AIS
         private void SetTrueHeading()
         {
             float myHeading = transform.eulerAngles.y;
-            float northHeading = Input.compass.magneticHeading;
-
-            float dif = myHeading - northHeading;
-            if (dif < 0) dif += 360f;
-            TrueHeading =  (uint) Mathf.Round(dif);
+            float northOffset = GeoOrigin.HasInstance ? GeoOrigin.Instance.TrueNorthOffset : 0f;
+            float heading = Mathf.Repeat(myHeading - northOffset, 360f);
+            TrueHeading = (uint) Mathf.Round(heading);
         }
 
         private void SetCOG()
@@ -71,11 +69,9 @@ namespace Marus.Sensors.AIS
             {
                 Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up);
                 float r = rotation.eulerAngles.y;
-                if (r < 0)
-                {
-                    r += 360f;
-                }
-                COG = (uint) Mathf.Round(r*10);
+                float northOffset = GeoOrigin.HasInstance ? GeoOrigin.Instance.TrueNorthOffset : 0f;
+                float course = Mathf.Repeat(r - northOffset, 360f);
+                COG = (uint) Mathf.Round(course * 10f);
             }
         }
 

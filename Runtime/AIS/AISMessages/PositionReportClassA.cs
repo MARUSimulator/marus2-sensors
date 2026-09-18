@@ -38,21 +38,17 @@ namespace Marus.Sensors.AIS
         public PositionAccuracy PositionAccuracy { get; set; }
 
         /// <summary>
-        /// Longitude in in 1/10000 min.
-        /// East positive, west negative.
-        /// 2644228 -> 264.4228’ -> 4° 24.4228’
+        /// Longitude in WGS84 decimal degrees (East positive, West negative).
         /// </summary>
         public double Longitude { get; set; }
 
         /// <summary>
-        /// Latitude in in 1/10000 min.
-        /// North positive, south negative.
-        /// 30737782 -> 3073.7782’ -> 51° 13.7782’
+        /// Latitude in WGS84 decimal degrees (North positive, South negative).
         /// </summary>
         public double Latitude { get; set; }
 
         /// <summary>
-        /// Heading (orientation) of vessel in degrees (0-359) 
+        /// Heading (orientation) of vessel in degrees (0-359)
         /// 511 indicates not available
         /// </summary>
         public uint TrueHeading { get; set; }
@@ -90,7 +86,7 @@ namespace Marus.Sensors.AIS
         public override string ToString()
         {
             //TODO debug purposes
-            return string.Format("MMSI: {0}, Type: {1}, TrueHeading: {2}, COG: {3}, SOG: {4}, Timestamp: {5}", 
+            return string.Format("MMSI: {0}, Type: {1}, TrueHeading: {2}, COG: {3}, SOG: {4}, Timestamp: {5}",
                 this.MMSI, this.MessageType, this.TrueHeading, this.COG, this.SOG, this.TimeStamp);
         }
     }
